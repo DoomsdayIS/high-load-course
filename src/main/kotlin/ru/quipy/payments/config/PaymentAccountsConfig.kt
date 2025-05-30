@@ -7,10 +7,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
-import ru.quipy.payments.logic.PaymentAccountProperties
-import ru.quipy.payments.logic.PaymentAggregateState
-import ru.quipy.payments.logic.PaymentExternalSystemAdapter
-import ru.quipy.payments.logic.PaymentExternalSystemAdapterImpl
+import ru.quipy.payments.logic.*
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -26,19 +23,10 @@ class PaymentAccountsConfig {
         private val mapper = ObjectMapper().registerKotlinModule().registerModules(JavaTimeModule())
     }
 
-    private val allowedAccounts = setOf("acc-5")
+    private val allowedAccounts = setOf("acc-8")
 
     @Bean
-    fun accountAdapters(
-        paymentService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>,
-        paymentAccountsProperties: List<PaymentAccountProperties>
-    ): List<PaymentExternalSystemAdapter> {
-        return paymentAccountsProperties
-            .map { PaymentExternalSystemAdapterImpl(it, paymentService) }
-    }
-
-    @Bean
-    fun paymentAccountsProperties(): List<PaymentAccountProperties> {
+    fun accountAdapters(paymentService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>): List<PaymentExternalSystemAdapter> {
         val request = HttpRequest.newBuilder()
             .uri(URI("http://${PAYMENT_PROVIDER_HOST_PORT}/external/accounts?serviceName=onlineStore")) // todo sukhoa service name
             .GET()
@@ -54,6 +42,6 @@ class PaymentAccountsConfig {
             .filter {
                 it.accountName in allowedAccounts
             }.onEach(::println)
+            .map { PaymentExternalSystemAdapterImpl(it, paymentService) }
     }
-
 }
