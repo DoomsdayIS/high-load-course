@@ -2,11 +2,12 @@ package ru.quipy.payments.logic
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.registerKotlinModule
-import okhttp3.ConnectionPool
+import kotlinx.coroutines.sync.Semaphore
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody
 import org.slf4j.LoggerFactory
+import ru.quipy.common.utils.LeakingBucketRateLimiter
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
 import java.net.SocketTimeoutException
@@ -31,18 +32,14 @@ class PaymentExternalSystemAdapterImpl(
     private val accountName = properties.accountName
     private val requestAverageProcessingTime = properties.averageProcessingTime
 
-    private val client = OkHttpClient.Builder()
-        .retryOnConnectionFailure(false)
-        .build()
+    private val client = OkHttpClient.Builder().build()
 
-    override fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
+    override suspend fun performPaymentAsync(paymentId: UUID, amount: Int, paymentStartedAt: Long, deadline: Long) {
         logger.warn("[$accountName] Submitting payment request for payment $paymentId")
 
         val transactionId = UUID.randomUUID()
         logger.info("[$accountName] Submit for $paymentId , txId: $transactionId")
 
-        // Вне зависимости от исхода оплаты важно отметить что она была отправлена.
-        // Это требуется сделать ВО ВСЕХ СЛУЧАЯХ, поскольку эта информация используется сервисом тестирования.
         paymentESService.update(paymentId) {
             it.logSubmission(success = true, transactionId, now(), Duration.ofMillis(now() - paymentStartedAt))
         }
@@ -88,6 +85,14 @@ class PaymentExternalSystemAdapterImpl(
             }
         }
     }
+    override fun isDeadlineExceeded(deadline: Long): Boolean =
+        now() + requestAverageProcessingTime.toMillis() * 1.5 >= deadline
+
+    override fun failPayment(paymentId: UUID) {
+        paymentESService.update(paymentId) {
+            it.logProcessing(false, now(), null, reason = "Failed to process")
+        }
+    }
 
     override fun price() = properties.price
 
@@ -98,7 +103,6 @@ class PaymentExternalSystemAdapterImpl(
     override fun parallelRequests() = properties.parallelRequests
 
     override fun rateLimit() = properties.rateLimitPerSec
-
 }
 
 public fun now() = System.currentTimeMillis()
