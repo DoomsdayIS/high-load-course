@@ -4,6 +4,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.stereotype.Service
+import ru.quipy.common.utils.CallerBlockingRejectedExecutionHandler
 import ru.quipy.common.utils.NamedThreadFactory
 import ru.quipy.core.EventSourcingService
 import ru.quipy.payments.api.PaymentAggregate
@@ -15,7 +16,9 @@ import java.util.concurrent.TimeUnit
 @Service
 class OrderPayer {
 
-    val logger: Logger = LoggerFactory.getLogger(OrderPayer::class.java)
+    companion object {
+        val logger: Logger = LoggerFactory.getLogger(OrderPayer::class.java)
+    }
 
     @Autowired
     private lateinit var paymentESService: EventSourcingService<UUID, PaymentAggregate, PaymentAggregateState>
@@ -24,12 +27,12 @@ class OrderPayer {
     private lateinit var paymentService: PaymentService
 
     private val paymentExecutor = ThreadPoolExecutor(
-        16,
-        16,
-        0L,
-        TimeUnit.MILLISECONDS,
-        LinkedBlockingQueue(),
-        NamedThreadFactory("payment-submission-executor")
+        50,
+        50,
+        15, TimeUnit.MINUTES,
+        LinkedBlockingQueue(8_000),
+        NamedThreadFactory("payment-submission-executor"),
+        CallerBlockingRejectedExecutionHandler()
     )
 
     fun processPayment(orderId: UUID, amount: Int, paymentId: UUID, deadline: Long): Long {
